@@ -1,0 +1,10 @@
+[package]
+name = "minesweeper-pison-rs"
+version = "0.1.0"
+authors = ["Galen Elias <gelias@gmail.com>"]
+
+[dependencies]
+piston_window = "0"
+rand = "*"
+piston2d-opengl_graphics = "0"
+piston2d-graphics = "*"

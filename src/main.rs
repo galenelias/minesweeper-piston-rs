@@ -1,10 +1,10 @@
 extern crate piston_window;
-extern crate opengl_graphics;
+// extern crate opengl_graphics;
 extern crate rand;
 
-use piston_window::*;
-use std::time::{Instant, Duration};
-use opengl_graphics::GlGraphics;
+use piston_window::*; //{Rectangle, DrawState};
+// use std::time::{Instant, Duration};
+// use opengl_graphics::GlGraphics;
 
 #[derive(Clone)]
 struct Cell {
@@ -41,11 +41,10 @@ impl Board {
     fn dim_x(&self) -> usize { self.cells[0].len() }
     fn dim_y(&self) -> usize { self.cells.len() }
 
-    fn draw<'a>(&self, c: &Context, gl: &mut GlGraphics, glyphs: &mut Glyphs, metrics: &Metrics, hovered_cell: &Option<[usize; 2]>, mouse_state: &MouseState)
-        // where C: CharacterCache<GlGraphics::Texture>
+    fn draw<'a>(&self, c: &Context, gl: &mut G2d, glyphs: &mut Glyphs, metrics: &Metrics, hovered_cell: &Option<[usize; 2]>, mouse_state: &MouseState)
     {
         let mut draw = |color, rect: [f64; 4]| {
-            Rectangle::new(color).draw(rect, &DrawState::default(), c.transform, gl);
+            // Rectangle::new(color).draw(rect, &DrawState::default(), c.transform, &mut gl);
         };
        
         for y in 0..self.dim_y() {
@@ -73,13 +72,14 @@ impl Board {
                 };
 
                 draw(inner_color, inner);
+
                 // let transform = c.transform.trans(10.0, 100.0);
                 // text::Text::new_color([0.0, 0.0, 0.0, 1.0], 32).draw(
-                //     "3",
-                //     glyphs,
+                //     "abd",
+                //     &mut glyphs,
                 //     &c.draw_state,
                 //     transform,
-                //     gl
+                //     &mut gl
                 // );
             }
         }
@@ -142,87 +142,29 @@ impl Game {
     }
 
     fn progress(&mut self) {
-        // enum Disposition {
-        //     ShouldFall,
-        //     NewPiece(Board),
-        // }
-
         let disp = match &mut self.state {
             State::GameOver => return,
             State::Idle => return,
             _ => (), //State::InProgress => return,
-        //    State::Flashing(stage, last_stage_switch, lines) => {
-        //         if last_stage_switch.elapsed() <= Duration::from_millis(50) {
-        //             return;
-        //         }
-        //         if *stage < 18 {
-        //             *stage += 1;
-        //             *last_stage_switch = Instant::now();
-        //             return;
-        //         } else {
-        //             Disposition::NewPiece(self.board.with_eliminate_lines(lines))
-        //         }
-        //     }
-        //     State::Falling(falling) => {
-        //         if falling.time_since_fall.elapsed() <= Duration::from_millis(700) {
-        //             return;
-        //         }
-        //         Disposition::ShouldFall
-        //     }
+
         };
 
-        // match disp {
-        //     Disposition::ShouldFall => self.move_piece((0, 1)),
-        //     Disposition::NewPiece(new_board) => {
-        //         self.board = new_board;
-        //         self.state = State::Falling(Self::new_falling(&self.possible_pieces));
-        //     }
-        // }
     }
 
-    // fn render(&self, gl: &mut GlGraphics, glyphs: &mut Glyphs, args: &RenderArgs) {
     fn render(&self, gl: &mut G2d, c: &Context, glyphs: &mut Glyphs) {
-        // let res = self.metrics.resolution();
-        // let c = &Context::new_abs(res[0] as f64, res[1] as f64);
 
-        // gl.draw(args.viewport(), |_, gl| {
+        let mouse_state = if self.mouse_down_cell == self.metrics.cell_at(&self.mouse_pos) {
+            match self.mouse_states {
+                [false, false] => MouseState::NoneDown,
+                [true, false] => MouseState::LeftDown,
+                [false, true] => MouseState::RightDown,
+                [true, true] => MouseState::BothDown,
+            }
+        } else {
+            MouseState::NoneDown
+        };
 
-            let mouse_state = if self.mouse_down_cell == self.metrics.cell_at(&self.mouse_pos) {
-                match self.mouse_states {
-                    [false, false] => MouseState::NoneDown,
-                    [true, false] => MouseState::LeftDown,
-                    [false, true] => MouseState::RightDown,
-                    [true, true] => MouseState::BothDown,
-                }
-            } else {
-                MouseState::NoneDown
-            };
-
-            self.board.draw(c, gl, glyphs, &self.metrics, &self.mouse_down_cell, &mouse_state);
-
-                //    Rectangle::new( [1.0, 0.0, 0.0, 1.0],).draw(rect, &DrawState::default(), c.transform, gl);
-
-            // match &self.state {
-            //     State::Flashing(stage, _, lines) => {
-            //         let effect = {
-            //             if *stage % 2 == 0 {
-            //                 DrawEffect::None
-            //             } else {
-            //                 DrawEffect::Flash(&lines)
-            //             }
-            //         };
-            //         self.board.draw(c, gl, effect, &self.metrics);
-            //     }
-            //     State::Falling(falling) => {
-            //         if let Some(merged) = self.board.as_merged(falling.offset, &falling.piece) {
-            //             merged.draw(c, gl, DrawEffect::None, &self.metrics);
-            //         }
-            //     }
-            //     State::GameOver => {
-            //         self.board.draw(c, gl, DrawEffect::Darker, &self.metrics);
-            //     }
-            // }
-        // });
+        self.board.draw(c, gl, glyphs, &self.metrics, &self.mouse_down_cell, &mouse_state);
     }
 
     fn on_press(&mut self, args: &Button) {
@@ -291,7 +233,6 @@ fn main() {
             |e| { panic!("Failed: {}", e) }
         );
 
-    let mut gl = GlGraphics::new(OpenGL::V3_2);
     let mut game = Game::new(metrics);
     let factory = window.factory.clone();
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
@@ -302,20 +243,40 @@ fn main() {
         game.progress();
 
         if let Some(args) = event.render_args() {
-            // game.render(&mut gl, &mut glyphs, &args);
-
-            window.draw_2d(&event, |c, g| {
-                game.render(&mut g, &mut glyphs);
-
-                let transform = c.transform.trans(10.0, 100.0);
+            window.draw_2d(&event, |c, mut g| {
                 // Set a white background
                 clear([1.0, 1.0, 1.0, 1.0], g);
-                text::Text::new_color([0.0, 0.0, 0.0, 1.0], 32).draw(
-                    "abd",
-                    &mut glyphs,
-                    &c.draw_state,
-                    transform, g
-                );
+
+    // fn draw<'a>(&self, c: &Context, gl: &mut G2d, glyphs: &mut Glyphs, metrics: &Metrics, hovered_cell: &Option<[usize; 2]>, mouse_state: &MouseState)
+    // {
+                let mut drawx = |glyps: Glyphs, context: &Context, transform, gr: &mut G2d|  {
+                    text::Text::new_color([0.0, 0.0, 0.0, 1.0], 32).draw(
+                        "abd",
+                        glyphs,
+                        &c.draw_state,
+                        transform,
+                        gr);
+                };
+
+                let transform = c.transform.trans(10.0, 100.0);
+                drawx(glyphs, &c, transform, &mut g);
+
+                // game.render(&mut g, &c, &mut glyphs);
+                // let transform = c.transform.trans(10.0, 100.0);
+                // text::Text::new_color([0.0, 0.0, 0.0, 1.0], 32).draw(
+                //     "abd",
+                //     &mut glyphs,
+                //     &c.draw_state,
+                //     transform,
+                //     g);
+
+                // let transform2 = c.transform.trans(10.0, 200.0);
+                // text::Text::new_color([0.0, 0.0, 0.0, 1.0], 32).draw(
+                //     "def",
+                //     &mut glyphs,
+                //     &c.draw_state,
+                //     transform2,
+                //     g);
             });
         }
 

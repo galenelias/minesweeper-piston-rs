@@ -1,10 +1,7 @@
 extern crate piston_window;
-// extern crate opengl_graphics;
 extern crate rand;
 
-use piston_window::*; //{Rectangle, DrawState};
-// use std::time::{Instant, Duration};
-// use opengl_graphics::GlGraphics;
+use piston_window::*;
 
 #[derive(Clone)]
 struct Cell {
@@ -43,8 +40,8 @@ impl Board {
 
     fn draw<'a>(&self, c: &Context, gl: &mut G2d, glyphs: &mut Glyphs, metrics: &Metrics, hovered_cell: &Option<[usize; 2]>, mouse_state: &MouseState)
     {
-        let mut draw = |color, rect: [f64; 4]| {
-            // Rectangle::new(color).draw(rect, &DrawState::default(), c.transform, &mut gl);
+        let draw = |color, rect: [f64; 4], gl: &mut G2d| {
+            Rectangle::new(color).draw(rect, &DrawState::default(), c.transform, gl);
         };
        
         for y in 0..self.dim_y() {
@@ -55,11 +52,7 @@ impl Board {
                 let inner = [outer[0] + border_size, outer[1] + border_size,
                        outer[2] - border_size * 2.0, outer[3] - border_size * 2.0];
 
-                draw([0.2, 0.2, 0.2, 1.0], outer);
-
-                if hovered_cell == &Some([x, y]) {
-                    println!("Hovered mouse state = {:?}", mouse_state);
-                }
+                draw([0.2, 0.2, 0.2, 1.0], outer, gl);
 
                 let is_pressed_cell = mouse_state != &MouseState::NoneDown && hovered_cell == &Some([x, y]);
 
@@ -71,16 +64,16 @@ impl Board {
                     true => [0.8,0.8,0.8,1.0],
                 };
 
-                draw(inner_color, inner);
+                draw(inner_color, inner, gl);
 
-                // let transform = c.transform.trans(10.0, 100.0);
-                // text::Text::new_color([0.0, 0.0, 0.0, 1.0], 32).draw(
-                //     "abd",
-                //     &mut glyphs,
-                //     &c.draw_state,
-                //     transform,
-                //     &mut gl
-                // );
+                let transform = c.transform.trans(inner[0], inner[1] + inner[3]);
+                text::Text::new_color([0.0, 0.0, 0.0, 1.0], (metrics.block_pixels - 4) as u32).draw(
+                    "3",
+                    glyphs,
+                    &c.draw_state,
+                    transform,
+                    gl
+                ).unwrap();
             }
         }
     }
@@ -148,7 +141,6 @@ impl Game {
             _ => (), //State::InProgress => return,
 
         };
-
     }
 
     fn render(&self, gl: &mut G2d, c: &Context, glyphs: &mut Glyphs) {
@@ -243,40 +235,11 @@ fn main() {
         game.progress();
 
         if let Some(args) = event.render_args() {
-            window.draw_2d(&event, |c, mut g| {
+            window.draw_2d(&event, |c, g| {
                 // Set a white background
                 clear([1.0, 1.0, 1.0, 1.0], g);
 
-    // fn draw<'a>(&self, c: &Context, gl: &mut G2d, glyphs: &mut Glyphs, metrics: &Metrics, hovered_cell: &Option<[usize; 2]>, mouse_state: &MouseState)
-    // {
-                let mut drawx = |glyps: Glyphs, context: &Context, transform, gr: &mut G2d|  {
-                    text::Text::new_color([0.0, 0.0, 0.0, 1.0], 32).draw(
-                        "abd",
-                        glyphs,
-                        &c.draw_state,
-                        transform,
-                        gr);
-                };
-
-                let transform = c.transform.trans(10.0, 100.0);
-                drawx(glyphs, &c, transform, &mut g);
-
-                // game.render(&mut g, &c, &mut glyphs);
-                // let transform = c.transform.trans(10.0, 100.0);
-                // text::Text::new_color([0.0, 0.0, 0.0, 1.0], 32).draw(
-                //     "abd",
-                //     &mut glyphs,
-                //     &c.draw_state,
-                //     transform,
-                //     g);
-
-                // let transform2 = c.transform.trans(10.0, 200.0);
-                // text::Text::new_color([0.0, 0.0, 0.0, 1.0], 32).draw(
-                //     "def",
-                //     &mut glyphs,
-                //     &c.draw_state,
-                //     transform2,
-                //     g);
+                game.render(g, &c, &mut glyphs);
             });
         }
 

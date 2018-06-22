@@ -9,6 +9,18 @@ use std::collections::VecDeque;
 use std::collections::HashSet;
 use itertools::Itertools;
 
+fn draw_text_centered(c: &Context, gl: &mut G2d, glyphs: &mut Glyphs, text: &str, size: u32, color: [f32; 4], rect: [f64; 4]) {
+    let width = glyphs.width(size, text).unwrap();
+    let trans = c.transform.trans(rect[0] + (rect[2] - width)/2.0, rect[1] + (rect[3] - size as f64)/2.0 + ((3 * size) / 4) as f64);
+    text::Text::new_color(color, size).draw(
+        text,
+        glyphs,
+        &c.draw_state,
+        trans,
+        gl
+    ).unwrap();
+}
+
 #[derive(Clone)]
 struct Cell {
     is_revealed: bool,
@@ -125,8 +137,11 @@ impl Metrics {
          (self.board_y * self.block_pixels) as u32 + self.insets[1] + self.insets[3]]
     }
 
+    fn board_rect(&self) -> [u32; 4] {
+        [self.insets[0], self.insets[1], (self.board_x * self.block_pixels) as u32, (self.board_y * self.block_pixels) as u32]
+    }
+
     fn cell_at(&self, pos: &[f64; 2]) -> Option<[usize; 2]> {
-        let res = self.resolution();
         if pos[1] < self.insets[1] as f64 {
             None
         } else {
@@ -144,6 +159,7 @@ struct Game {
     mouse_down_cell: Option<[usize; 2]>,
 }
 
+#[derive(PartialEq)]
 enum State {
     Idle,
     CursorDown([usize; 2]),
@@ -162,40 +178,6 @@ impl Game {
             mouse_down_cell: None,
         }
     }
-
-    fn run_on_adjacent_cells<P>(&mut self, row: usize, col: usize, f: P) where P: Fn(usize, usize) {
-        let prev_col = col.checked_sub(1);
-        let next_col = if col + 1 < self.metrics.board_x { Some(col + 1) } else { None };
-
-        if let Some(prev_row) = row.checked_sub(1) {
-            if prev_col.is_some() {
-                f(prev_row, prev_col.unwrap());
-            }
-            f(prev_row, col);
-            if next_col.is_some() {
-                f(prev_row, next_col.unwrap());
-            }
-        }
-
-        if prev_col.is_some() {
-            f(row, prev_col.unwrap());
-        }
-        if next_col.is_some() {
-            f(row, next_col.unwrap());
-        }
-
-        if row + 1 < self.metrics.board_y {
-            let next_row = row + 1;
-            if prev_col.is_some() {
-                f(next_row, prev_col.unwrap());
-            }
-            f(next_row, col);
-            if next_col.is_some() {
-                f(next_row, next_col.unwrap());
-            }
-        }
-    }
-
 
     fn generate_initial_mines(&mut self) {
         let mut rng = rand::thread_rng();
@@ -242,6 +224,13 @@ impl Game {
         };
 
         self.board.draw(c, gl, glyphs, &self.metrics, &self.mouse_down_cell, &mouse_state);
+
+        if self.state == State::GameOver {
+            let board_rect = self.metrics.board_rect();
+
+            draw_text_centered(c, gl, glyphs, "Game over", (self.metrics.block_pixels * 2) as u32, [1.0, 0.0, 0.0, 1.0],
+                [board_rect[0] as f64, board_rect[1] as f64, board_rect[2] as f64, board_rect[3] as f64]);
+        }
     }
 
     fn on_press(&mut self, args: &Button) {
@@ -283,13 +272,8 @@ impl Game {
             self.mouse_states[0] = false;
 
             if let Some(cell_at_cursor) = self.metrics.cell_at(&self.mouse_pos) {
-                // let mut cell = &mut self.board.cells[cell_at_cursor[1]][cell_at_cursor[0]];
-
                 if self.mouse_down_cell == Some(cell_at_cursor) {
                     self.reveal_square(cell_at_cursor[1], cell_at_cursor[0]);
-                    // if !(*cell).is_revealed {
-                        // (*cell).is_revealed = !cell.is_revealed;
-                    // }
                 }
             }
         } else if button == &MouseButton::Right {

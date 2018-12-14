@@ -1,13 +1,15 @@
 #[macro_use] extern crate itertools;
+extern crate graphics;
+extern crate opengl_graphics;
 extern crate piston_window;
 extern crate rand;
 
 use piston_window::*;
 use piston_window::character::CharacterCache;
 use rand::prelude::*;
-use std::collections::VecDeque;
 use std::collections::HashSet;
-use itertools::Itertools;
+use std::collections::VecDeque;
+use std::path::Path;
 
 fn draw_text_centered(c: &Context, gl: &mut G2d, glyphs: &mut Glyphs, text: &str, size: u32, color: [f32; 4], rect: [f64; 4]) {
     let width = glyphs.width(size, text).unwrap();
@@ -24,6 +26,7 @@ fn draw_text_centered(c: &Context, gl: &mut G2d, glyphs: &mut Glyphs, text: &str
 #[derive(Clone)]
 struct Cell {
     is_revealed: bool,
+    is_flagged: bool,
     is_mine: bool,
     adjacent_mines: usize,
 }
@@ -31,6 +34,7 @@ struct Cell {
 #[derive(Clone)]
 struct Board {
     cells: Vec<Vec<Cell>>,
+    flag_texture: G2dTexture,
 }
 
 #[derive(PartialEq, Debug)]
@@ -42,11 +46,15 @@ enum MouseState {
 }
 
 impl Board {
-    fn empty(dim_x: usize, dim_y: usize) -> Self {
-        let line : Vec<_> = (0..dim_x).map(|_| Cell{is_revealed: false, is_mine: false, adjacent_mines: 0}).collect();
-        let mut cells : Vec<_> = (0..dim_y).map(|_|line.clone()).collect();
+    fn empty(dim_x: usize, dim_y: usize, window: &mut PistonWindow) -> Self {
+        let line : Vec<_> = (0..dim_x).map(|_| Cell{is_flagged: false, is_revealed: false, is_mine: false, adjacent_mines: 0}).collect();
+        let cells : Vec<_> = (0..dim_y).map(|_|line.clone()).collect();
 
-        Board { cells }
+        let flag_texture: G2dTexture = {
+            Texture::from_path(&mut window.factory, &Path::new("assets/flag.png"), Flip::None, &TextureSettings::new()).unwrap()
+        };
+
+        Board { cells, flag_texture }
     }
 
     fn dim_x(&self) -> usize { self.cells[0].len() }
@@ -109,7 +117,12 @@ impl Board {
 
                 draw(inner_color, inner, gl);
 
-                if !self.cells[y][x].is_revealed {
+                if self.cells[y][x].is_flagged {
+                    let flag_image = Image::new().rect(rectangle::square(0.0, 0.0, (metrics.block_pixels * 2 / 3) as f64));
+                    let flag_inset = (metrics.block_pixels / 6) as f64;
+                    flag_image.draw(&self.flag_texture, &DrawState::default(), c.transform.trans(inner[0] + flag_inset, inner[1] + flag_inset), gl);
+                }
+                else if !self.cells[y][x].is_revealed {
 
                 } else if self.cells[y][x].is_mine {
                     draw_char([0.0, 0.0, 0.0, 1.0], inner, (metrics.block_pixels - 4) as f64, 'X', gl, glyphs);
@@ -119,6 +132,10 @@ impl Board {
                 }
             }
         }
+    }
+
+    fn get_flag_count(&self) -> usize {
+        self.cells.iter().map(|r| r.iter().filter(|c| c.is_flagged).count()).sum()
     }
 }
 
@@ -142,9 +159,11 @@ impl Metrics {
     }
 
     fn cell_at(&self, pos: &[f64; 2]) -> Option<[usize; 2]> {
+        // println!("Cell at ({}, {})", pos[0], pos[1]);
         if pos[1] < self.insets[1] as f64 {
             None
         } else {
+            // TODO: Handle out of bounds on the 'high' end
             Some([((pos[0] - self.insets[0] as f64) / self.block_pixels as f64) as usize, ((pos[1] - self.insets[1] as f64) / self.block_pixels as f64) as usize])
         }
     }
@@ -157,38 +176,42 @@ struct Game {
     mouse_pos: [f64; 2],
     mouse_states: [bool; 2],
     mouse_down_cell: Option<[usize; 2]>,
+    flags_left: usize,
 }
 
 #[derive(PartialEq)]
 enum State {
+    Initial,
     Idle,
-    CursorDown([usize; 2]),
-    CursorDoubleDown([usize; 2]),
-    GameOver,
+    // CursorDown([usize; 2]),
+    // CursorDoubleDown([usize; 2]),
+    Lost,
+    Won,
 }
 
 impl Game {
-    fn new(metrics: Metrics) -> Self {
+    fn new(metrics: Metrics, window: &mut PistonWindow) -> Self {
+        let flags_left = metrics.initial_mines;
         Game {
-            board: Board::empty(metrics.board_x, metrics.board_y),
-            state: State::Idle,
+            board: Board::empty(metrics.board_x, metrics.board_y, window),
+            state: State::Initial,
             metrics,
             mouse_pos: [0.0, 0.0],
             mouse_states: [false, false],
             mouse_down_cell: None,
+            flags_left: flags_left,
         }
     }
 
-    fn generate_initial_mines(&mut self) {
+    fn generate_initial_mines(&mut self, initial_row: usize, initial_col: usize) {
         let mut rng = rand::thread_rng();
-
         let mut mines_left = self.metrics.initial_mines;
-       
+
         while mines_left > 0 {
             let row = rng.gen_range(0, self.metrics.board_x);
             let col = rng.gen_range(0, self.metrics.board_y);
 
-            if !self.board.cells[row][col].is_mine {
+            if row != initial_row && col != initial_col && !self.board.cells[row][col].is_mine {
                 mines_left -= 1;
                 self.board.cells[row][col].is_mine = true;
 
@@ -202,12 +225,11 @@ impl Game {
     }
 
     fn progress(&mut self) {
-        let disp = match &mut self.state {
-            State::GameOver => return,
-            State::Idle => return,
-            _ => (), //State::InProgress => return,
-
-        };
+        // let _disp = match &mut self.state {
+        //     State::GameOver => return,
+        //     State::Initial => return,
+        //     _ => (), //State::InProgress => return,
+        // };
     }
 
     fn render(&self, gl: &mut G2d, c: &Context, glyphs: &mut Glyphs) {
@@ -225,12 +247,21 @@ impl Game {
 
         self.board.draw(c, gl, glyphs, &self.metrics, &self.mouse_down_cell, &mouse_state);
 
-        if self.state == State::GameOver {
+        if self.state == State::Lost || self.state == State::Won {
             let board_rect = self.metrics.board_rect();
 
-            draw_text_centered(c, gl, glyphs, "Game over", (self.metrics.block_pixels * 2) as u32, [1.0, 0.0, 0.0, 1.0],
+            let color = match self.state {
+                State::Lost => [1.0, 0.0, 0.0, 1.0],
+                State::Won => [0.0, 1.0, 0.0, 1.0],
+                _ => unreachable!(),
+            };
+
+            draw_text_centered(c, gl, glyphs, "Game over", (self.metrics.block_pixels * 2) as u32, color,
                 [board_rect[0] as f64, board_rect[1] as f64, board_rect[2] as f64, board_rect[3] as f64]);
         }
+
+        draw_text_centered(c, gl, glyphs, &format!("{}", self.flags_left), self.metrics.insets[1] as u32, [0.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, self.metrics.insets[1] as f64, self.metrics.insets[1] as f64]);
     }
 
     fn on_press(&mut self, args: &Button) {
@@ -247,7 +278,8 @@ impl Game {
             _ => {},
         }
     }
-    fn on_key(&mut self, key: &Key) {
+
+    fn on_key(&mut self, _key: &Key) {
 
     }
 
@@ -256,12 +288,12 @@ impl Game {
     }
 
     fn on_mouse_down(&mut self, button: &MouseButton) {
+        if let Some(cell_at_cursor) = self.metrics.cell_at(&self.mouse_pos) {
+            self.mouse_down_cell = Some(cell_at_cursor);
+        }
+
         if button == &MouseButton::Left {
             self.mouse_states[0] = true;
-
-            if let Some(cell_at_cursor) = self.metrics.cell_at(&self.mouse_pos) {
-                self.mouse_down_cell = Some(cell_at_cursor);
-            }
         } else if button == &MouseButton::Right {
             self.mouse_states[1] = true;
         }
@@ -273,11 +305,39 @@ impl Game {
 
             if let Some(cell_at_cursor) = self.metrics.cell_at(&self.mouse_pos) {
                 if self.mouse_down_cell == Some(cell_at_cursor) {
+
+                    if self.state == State::Initial {
+                        self.generate_initial_mines(cell_at_cursor[1], cell_at_cursor[0]);
+                        self.state = State::Idle;
+                    }
+
                     self.reveal_square(cell_at_cursor[1], cell_at_cursor[0]);
                 }
             }
         } else if button == &MouseButton::Right {
             self.mouse_states[1] = false;
+
+            if let Some(cell_at_cursor) = self.metrics.cell_at(&self.mouse_pos) {
+                if self.mouse_down_cell == Some(cell_at_cursor) {
+                    self.flag_square(cell_at_cursor[1], cell_at_cursor[0]);
+                }
+            }
+        }
+    }
+
+    fn flag_square(&mut self, row: usize, col: usize) {
+        if self.state == State::Initial {
+            return;
+        }
+
+        if !self.board.cells[row][col].is_revealed {
+            self.board.cells[row][col].is_flagged = !self.board.cells[row][col].is_flagged;
+
+            if self.board.cells[row][col].is_flagged {
+                self.flags_left -= 1;
+            } else {
+                self.flags_left += 1;
+            }
         }
     }
 
@@ -286,15 +346,19 @@ impl Game {
         let mut visited = HashSet::new();
         queue.push_back((row, col));
 
-        if self.board.cells[row][col].is_mine {
-            self.state = State::GameOver;
+        // println!("Reveal: row={}, col={}", row, col);
+
+        if self.board.cells[row][col].is_revealed || self.board.cells[row][col].is_flagged {
+            return;
+        } else if self.board.cells[row][col].is_mine {
+            self.state = State::Lost;
             self.board.cells[row][col].is_revealed = true;
             return;
         }
 
         while !queue.is_empty() {
             let rc = queue.pop_front().unwrap();
-            if visited.contains(&rc) {
+            if visited.contains(&rc) || self.board.cells[rc.0][rc.1].is_flagged {
                 continue;
             }
             visited.insert(rc.clone());
@@ -307,6 +371,10 @@ impl Game {
                     }
                 }
             }
+        }
+
+        if !self.board.cells.iter().any(|r| r.iter().any(|c| !c.is_mine && !c.is_revealed)) {
+            self.state = State::Won;
         }
     }
 }
@@ -325,22 +393,18 @@ fn main() {
             |e| { panic!("Failed: {}", e) }
         );
 
-    let mut game = Game::new(metrics);
-    let factory = window.factory.clone();
+    let mut game = Game::new(metrics, &mut window);
     let texture_settings = TextureSettings::new().filter(Filter::Nearest);
 
-    let mut glyphs = Glyphs::new("assets/FiraSans-Regular.ttf", factory, texture_settings).unwrap();
-
-    game.generate_initial_mines();
+    let mut glyphs = Glyphs::new("assets/FiraSans-Regular.ttf", window.factory.clone(), texture_settings).unwrap();
 
     while let Some(event) = window.next() {
         game.progress();
 
-        if let Some(args) = event.render_args() {
+        if let Some(_args) = event.render_args() {
             window.draw_2d(&event, |c, g| {
                 // Set a white background
                 clear([1.0, 1.0, 1.0, 1.0], g);
-
                 game.render(g, &c, &mut glyphs);
             });
         }
